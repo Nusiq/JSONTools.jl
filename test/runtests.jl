@@ -217,7 +217,7 @@ end
     @test result == INVALID_ROOT::EndOfPath
 end
 
-@testset "Try to set values using paths with JSONPathWildcard" begin
+@testset "Try to set vaues using wildcards/star patterns" begin
     data = JSON.parse("""
         {
             "a": {"b": {"c": 1}},
@@ -227,6 +227,61 @@ end
     @test_throws JSONToolsError data[JSONPath(ANY, "B")] = 99
     @test_throws JSONToolsError data[JSONPath("a", ANY)] = 99
     @test_throws JSONToolsError data[JSONPath("a", ANY, "c")] = 99
+    # Setting value with star patterns is not supported
+    @test_throws JSONToolsError data[JSONPath(star"*", "B")] = 88
+    @test_throws JSONToolsError data[JSONPath("a", star"*")] = 88
+    @test_throws JSONToolsError data[JSONPath("a", star"*", "c")] = 88
+end
+
+@testset "Test StarPattern match" begin
+    @test starmatch("żółć", star"żółć")
+    @test starmatch("żółć", star"ż*")
+    @test starmatch("żółć", star"*ć")
+    @test starmatch("żółć", star"ż*ć")
+    @test starmatch("some long text", star"s*e long t*t")
+    @test starmatch("some long text", star"s***t")
+    @test starmatch("some long text", star"***t")
+    @test starmatch("some long text", star"s***")
+    @test starmatch("some long text", star"***")
+end
+
+@testset "Get values using paths with StarPatterns" begin
+    data = JSON.parse("""
+            {
+                "a1": {
+                    "b": 1,
+                    "cPc": {"dd": 11}
+                },
+                "a2": {
+                    "b": 2,
+                    "cQc": {"dd": 22}
+                },
+                "a3": {
+                    "b": 3,
+                    "cRc": {"dd": 33}
+                },
+                "b1": {
+                    "b": 4,
+                    "cSc": {"dd": 44}
+                }
+            }""")
+    # Tests are collected and sorted because
+    cs = (x) -> x |> collect |> sort
+
+    # Match everything
+    result = data[JSONPath(star"*", "b")]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 2, 3, 4])
+
+    # Match A's
+    result = data[JSONPath(star"a*", "b")]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 2, 3])
+
+    # Match pattern in the middle
+    result = data[JSONPath(star"*", star"c*c", "dd")]
+    @test result isa Tuple
+    @test cs(result) == cs([11, 22, 33, 44])
 end
 
 nothing  # Prevent printing the test object in the REPL

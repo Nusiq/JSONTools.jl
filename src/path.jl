@@ -1,5 +1,7 @@
 # JSONPath and everything related to defining it.
 
+include("pattern.jl")
+
 "Helper type for every Integer which isn't a Boolean (which in Julia is a subtype of Integer)."
 VectorIndex = Union{Signed,Unsigned}
 
@@ -42,7 +44,7 @@ indexing. The struct has following fields:
   the lists when canfilllists is true.
 """
 struct JSONPath
-    path::Tuple{Vararg{Union{String,VectorIndex,JSONPathWildcard}}}
+    path::Tuple{Vararg{Union{String,VectorIndex,JSONPathWildcard,StarPattern}}}
     parents::Bool
     candestroy::Bool
     canfilllists::Bool
@@ -52,12 +54,12 @@ struct JSONPath
     Create JSONPath using variadic arguments.
     """
     function JSONPath(
-        args::Union{String,VectorIndex,JSONPathWildcard}...;
+        args::Union{String,VectorIndex,JSONPathWildcard,StarPattern}...;
         parents::Bool=false,
         candestroy::Bool=false,
         canfilllists::Bool=false,
         listfiller::Function=() -> nothing)
-        vect = Tuple{Vararg{Union{String,VectorIndex,JSONPathWildcard}}}(args)
+        vect = Tuple{Vararg{Union{String,VectorIndex,JSONPathWildcard,StarPattern}}}(args)
         new(vect, parents, candestroy, canfilllists, listfiller)
     end
 end

@@ -10,6 +10,10 @@ export MISSING_KEY, OUT_OF_BOUNDS, NOT_A_CONTAINER, INVALID_KEY_TYPE, INVALID_RO
 export JSONPathWildcard
 export ANY, ANY_KEY, ANY_INDEX, SKIP_LIST
 
+export StarPattern
+export @star_str
+export starmatch
+
 include("exception.jl")
 include("path.jl")
 
@@ -70,12 +74,22 @@ function safeaccessjson(data::Vector, key::JSONPathWildcard)
     return INVALID_KEY_TYPE::EndOfPath
 end
 
+# Splitting paths with star patterns
+function safeaccessjson(data::Dict, key::StarPattern)
+    return Tuple([v for (k, v) in data if starmatch(k, key)])
+end
+
 # Wildcards on non-collections
 function safeaccessjson(data::Union{Nothing,Bool,Real,String}, key::JSONPathWildcard)
     if key === SKIP_LIST
         return tuple(data)
     end
     # ANY_KEY or ANY or ANY_INDEX
+    return INVALID_KEY_TYPE::EndOfPath
+end
+
+# Star patterns on non-dictionaries
+function safeaccessjson(_::Union{Nothing,Bool,Real,String}, _::StarPattern)
     return INVALID_KEY_TYPE::EndOfPath
 end
 
@@ -86,7 +100,7 @@ function safeaccessjson(data::Tuple, key::Union{String,VectorIndex})
     return tuple((data |> apply |> filter)...)
 end
 
-function safeaccessjson(data::Tuple, key::JSONPathWildcard)
+function safeaccessjson(data::Tuple, key::Union{JSONPathWildcard,StarPattern})
     # Apply function yields tuples becaus the key is a wildcard
     apply = (data) -> (safeaccessjson(d, key) for d in data)
     # Unpack yields values from the tuples, but skips EndOfPath objects
@@ -98,7 +112,6 @@ function safeaccessjson(data::Tuple, key::JSONPathWildcard)
     )
     return tuple((data |> apply |> unpack)...)
 end
-
 
 """
 Get the value from a Dict using given JSON path.
@@ -201,6 +214,9 @@ function _setindex(
     elseif isa(path[1], JSONPathWildcard)
         throw(JSONToolsError(
             "The paths with JSONPathWildcard can be used only for reading the data."))
+    elseif isa(path[1], StarPattern)
+        throw(JSONToolsError(
+            "The paths with StarPattern can be used only for reading the data."))
     elseif isa(root, Dict) && isa(path[1], VectorIndex)
         throw(JSONToolsError("The root is an object but the path starts with a numeric index."))
     elseif isa(root, Vector) && isa(path[1], String)
@@ -215,6 +231,9 @@ function _setindex(
         if isa(nextk, JSONPathWildcard)
             throw(JSONToolsError(
                 "The paths with JSONPathWildcard can be used only for reading the data."))
+        elseif isa(nextk, StarPattern)
+            throw(JSONToolsError(
+                "The paths with StarPattern can be used only for reading the data."))
         end
 
         # DETERMINE THE NEXT ITEM TYPE
