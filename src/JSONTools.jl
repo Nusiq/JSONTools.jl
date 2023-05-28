@@ -1,10 +1,14 @@
 module JSONTools
 
-export EndOfPath
-export MISSING_KEY, OUT_OF_BOUNDS, NOT_A_CONTAINER, INVALID_KEY_TYPE, INVALID_ROOT
 export safeaccessjson
 export JSONToolsError
 export JSONPath
+
+export EndOfPath
+export MISSING_KEY, OUT_OF_BOUNDS, NOT_A_CONTAINER, INVALID_KEY_TYPE, INVALID_ROOT
+
+export JSONPathWildcard
+export ANY, ANY_KEY, ANY_INDEX, SKIP_LIST
 
 "Helper type for every Integer which isn't a Boolean (which in Julia is a subtype of Integer)."
 VectorIndex = Union{Signed,Unsigned}
@@ -15,6 +19,30 @@ JSONToolsError is the base type for all errors from the JSONTools module.
 struct JSONToolsError <: Exception
     msg::String
 end
+
+"""
+JSONPathWildcard is a special type of an item in JSON path which makes
+splitting paths possible. It has following values:
+- ANY - Matches any key or index.
+- ANY_KEY - Matches any key in an object.
+- ANY_INDEX - Matches any index in a list.
+- SKIP_LIST - If the next object is a list, skip it and match all of its 
+  elements, otherwise do nothing. This is useful when the structure of the
+  data in the JSON file can have one or many elements and when it has one it's
+  allowed to be a single object instead of a list with one item.
+
+The result of accessing JSON with a wildcard is always a tuple, even if the
+wildcard matches only one item. This also applies to the SKIP_LIST wildcard.
+
+The wildcards can only be used for reading data, not for setting it.
+"""
+@enum JSONPathWildcard begin
+    ANY
+    ANY_KEY
+    ANY_INDEX
+    SKIP_LIST
+end
+
 
 """
 JSONPath is used to access and set the data in JSON serializable objects using
@@ -31,7 +59,7 @@ indexing. The struct has following fields:
   the lists when canfilllists is true.
 """
 struct JSONPath
-    path::Vector{Union{String,VectorIndex}}
+    path::Tuple{Vararg{Union{String,VectorIndex,JSONPathWildcard}}}
     parents::Bool
     candestroy::Bool
     canfilllists::Bool
@@ -41,15 +69,12 @@ struct JSONPath
     Create JSONPath using variadic arguments.
     """
     function JSONPath(
-        args::Union{String,VectorIndex}...;
+        args::Union{String,VectorIndex,JSONPathWildcard}...;
         parents::Bool=false,
         candestroy::Bool=false,
         canfilllists::Bool=false,
         listfiller::Function=() -> nothing)
-        vect = Vector{Union{String,VectorIndex}}(undef, length(args))
-        for (i, v) in enumerate(args)
-            vect[i] = v
-        end
+        vect = Tuple{Vararg{Union{String,VectorIndex,JSONPathWildcard}}}(args)
         new(vect, parents, candestroy, canfilllists, listfiller)
     end
 end
@@ -117,7 +142,7 @@ function safeaccessjson(_::Vector, _::String)
 end
 
 # Beyond the end of path
-function safeaccessjson(data::EndOfPath, _::Union{String,VectorIndex})
+function safeaccessjson(data::EndOfPath, _::Union{String,VectorIndex,JSONPathWildcard})
     return data
 end
 
@@ -125,6 +150,55 @@ end
 function safeaccessjson(_::Union{Nothing,Bool,Real,String}, _::Union{String,VectorIndex})
     return NOT_A_CONTAINER::EndOfPath
 end
+
+# Splitting paths with wildcards
+function safeaccessjson(data::Dict, key::JSONPathWildcard)
+    if key === ANY || key === ANY_KEY
+        return tuple(values(data)...)
+    elseif key === SKIP_LIST
+        return tuple(data)
+    end
+    # ANY_INDEX
+    return INVALID_KEY_TYPE::EndOfPath
+end
+
+function safeaccessjson(data::Vector, key::JSONPathWildcard)
+    if key === ANY || key === ANY_INDEX || key === SKIP_LIST
+        return tuple(data...)
+    end
+    # ANY_KEY
+    return INVALID_KEY_TYPE::EndOfPath
+end
+
+# Wildcards on non-collections
+function safeaccessjson(data::Union{Nothing,Bool,Real,String}, key::JSONPathWildcard)
+    if key === SKIP_LIST
+        return tuple(data)
+    end
+    # ANY_KEY or ANY or ANY_INDEX
+    return INVALID_KEY_TYPE::EndOfPath
+end
+
+# Handling splitted paths (tuples automatically exclude EndOfPath objects)
+function safeaccessjson(data::Tuple, key::Union{String,VectorIndex})
+    apply = (data) -> (safeaccessjson(d, key) for d in data)
+    filter = (data) -> (d for d in data if !isa(d, EndOfPath))
+    return tuple((data |> apply |> filter)...)
+end
+
+function safeaccessjson(data::Tuple, key::JSONPathWildcard)
+    # Apply function yields tuples becaus the key is a wildcard
+    apply = (data) -> (safeaccessjson(d, key) for d in data)
+    # Unpack yields values from the tuples, but skips EndOfPath objects
+    unpack = (data) -> (
+        item
+        for subdata in data  # subdata is a tuple with actual values
+        for item in subdata
+        if !isa(item, EndOfPath)  # skip EndOfPath objects
+    )
+    return tuple((data |> apply |> unpack)...)
+end
+
 
 """
 Get the value from a Dict using given JSON path.
@@ -151,6 +225,21 @@ function Base.getindex(data::Vector{V}, index::JSONPath) where V
     end
     return data
 end
+
+
+"""
+Get the value fron a Tuple. Every item of the tuple is treated as a root
+object. The objects that return EndOfPath are excluded from the result tuple.
+"""
+function Base.getindex(data::Tuple, index::JSONPath)
+    for k in index.path
+        data = safeaccessjson(data, k)
+        # The tuple can't return EndOfPath object because "safeaccessjson"
+        # automatically excludes them from the result in case of a tuple
+    end
+    return data
+end
+
 
 """
 Get the value from non-collection JSON serializable types. The function doesn't
@@ -189,6 +278,17 @@ function Base.setindex!(
     _setindex(root, value, path,)
 end
 
+"""
+Always return an error. This method is used to handle invalid root types.
+"""
+function Base.setindex!(
+    _::Union{Nothing,Bool,Real,String},
+    _::JSONPath,
+    _::Union{Nothing,Bool,Real,String,Dict,Vector}
+)
+    throw(JSONToolsError("The root must be a Dict or a Vector."))
+end
+
 "Redirection for the setindex! function to avoid the ambiguity error."
 function _setindex(
     root::Union{Dict,Vector},
@@ -198,11 +298,12 @@ function _setindex(
     # INITIAL CONDITIONS
     if length(path) == 0
         throw(JSONToolsError("The path must have at least one key."))
-    end
-    if isa(root, Dict) && isa(path[1], VectorIndex)
+    elseif isa(path[1], JSONPathWildcard)
+        throw(JSONToolsError(
+            "The paths with JSONPathWildcard can be used only for reading the data."))
+    elseif isa(root, Dict) && isa(path[1], VectorIndex)
         throw(JSONToolsError("The root is an object but the path starts with a numeric index."))
-    end
-    if isa(root, Vector) && isa(path[1], String)
+    elseif isa(root, Vector) && isa(path[1], String)
         throw(JSONToolsError("The root is a list but the path starts with a string key."))
     end
     curr = root
@@ -210,6 +311,11 @@ function _setindex(
     for i in 1:length(path)-1
         currk = path[i]
         nextk = path[i+1]
+
+        if isa(nextk, JSONPathWildcard)
+            throw(JSONToolsError(
+                "The paths with JSONPathWildcard can be used only for reading the data."))
+        end
 
         # DETERMINE THE NEXT ITEM TYPE
         @assert nextk isa String || nextk isa VectorIndex  # Should always pass
@@ -290,17 +396,5 @@ function _setindex(
         end
     end
 end
-
-"""
-Always return an error. This method is used to handle invalid root types.
-"""
-function Base.setindex!(
-    _::Union{Nothing,Bool,Real,String},
-    _::JSONPath,
-    _::Union{Nothing,Bool,Real,String,Dict,Vector}
-)
-    throw(JSONToolsError("The root must be a Dict or a Vector."))
-end
-
 
 end  # module JSONTools

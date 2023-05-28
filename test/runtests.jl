@@ -125,4 +125,108 @@ end
     @test data[path] == 99
 end
 
+@testset "Get values using paths with JSONPathWildcard" begin
+    data = JSON.parse("""
+        {
+            "a": {
+                "b1": {
+                    "c": 1,
+                    "d": {
+                        "e1": 1,
+                        "e2": 11
+                    },
+                    "f": 1
+                },
+                "b2": {
+                    "c": 2,
+                    "d": {
+                        "e1": 2,
+                        "e2": 22
+                    },
+                    "f": 2
+                },
+                "b3": {
+                    "c": 3,
+                    "d": {
+                        "e1": 3,
+                        "e2": 33
+                    }
+                }
+            },
+            "b": [{ "c": 1 }, { "c": 2 }, { "c": 3 }]
+        }""")
+    # Tests are collected and sorted because
+    cs = (x) -> x |> collect |> sort
+
+    # ANY_KEY
+    result = data[JSONPath("a", ANY_KEY, "c")]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 2, 3])
+    
+    # ANY
+    result = data[JSONPath("a", ANY, "c")]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 2, 3])
+
+    # ANY_INDEX
+    result = data[JSONPath("b", ANY_INDEX, "c")]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 2, 3])
+
+    # Nested
+    result = data[JSONPath("a", ANY_KEY, "d", ANY_KEY)]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 11, 2, 22, 3, 33])
+
+    # Missing path - the 'f' key is in 'b1' and 'b2' but not in 'b3'
+    result = data[JSONPath("a", ANY_KEY, "f")]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 2])
+
+    # WARNING! The results of 2 next tests might feel counterintuitive
+    # Wrong path strting with wildcards: Return empty tuple
+    result = data[JSONPath(ANY_KEY, "yyy")]
+    @test result isa Tuple
+    @test length(result) == 0
+    # Wrong path starting with wrong key: Returns EndOfPath
+    result = data[JSONPath("yyy", ANY_KEY)]
+    @test result == MISSING_KEY::EndOfPath
+
+    # SKIP_LIST skipping the list like ANY_INDEX
+    result = data[JSONPath("b", SKIP_LIST, "c")]
+    @test result isa Tuple
+    @test cs(result) == cs([1, 2, 3])
+
+    # SKIP_LIST do nothing because result is not a list (changes result to
+    # tuple)
+    result = data[JSONPath("a", SKIP_LIST, SKIP_LIST, SKIP_LIST, "b1", "c")]
+    @test result isa Tuple
+    @test cs(result) == cs([1])
+
+    # SKIP_LIST change primitive to tuple
+    # Test without SKIP_LIST
+    result = data[JSONPath("a", "b1", "c")]
+    @test result == 1
+    # Test with SKIP_LIST
+    result = data[JSONPath("a", "b1", "c", SKIP_LIST)]
+    @test result isa Tuple
+    @test cs(result) == cs([1])
+
+    # Accessing EndOfPath with a wildcard returns INVALID_ROOT error
+    result = (INVALID_KEY_TYPE::EndOfPath)[JSONPath(ANY_KEY::JSONPathWildcard)]
+    @test result == INVALID_ROOT::EndOfPath
+end
+
+@testset "Try to set values using paths with JSONPathWildcard" begin
+    data = JSON.parse("""
+        {
+            "a": {"b": {"c": 1}},
+            "x": [{"y": 2}, 11, 22]
+        }""")
+    # Setting values with wildcards is not supported
+    @test_throws JSONToolsError data[JSONPath(ANY, "B")] = 99
+    @test_throws JSONToolsError data[JSONPath("a", ANY)] = 99
+    @test_throws JSONToolsError data[JSONPath("a", ANY, "c")] = 99
+end
+
 nothing  # Prevent printing the test object in the REPL
