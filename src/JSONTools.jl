@@ -184,6 +184,14 @@ function Base.setindex!(
 end
 
 function Base.setindex!(
+        root::Dict{Any,Any},
+        value::Union{Nothing,Real,String,Dict,Vector},
+        path::JSONPath
+)
+    _setindex(root, value, path,)
+end
+
+function Base.setindex!(
         root::Vector{V},
         value::Union{Dict,Vector,Nothing,Bool,Real,String},
         path::JSONPath
@@ -315,5 +323,6 @@ function _setindex(
         end
     end
 end
+
 
 end  # module JSONTools

@@ -2,22 +2,19 @@
 
 include("pattern.jl")
 
-"Helper type for every Integer which isn't a Boolean (which in Julia is a subtype of Integer)."
-VectorIndex = Union{Signed,Unsigned}
+# Helper type for every Integer which isn't a Boolean (which in Julia is a
+# subtype of Integer).
+const VectorIndex = Union{Signed,Unsigned}
 
 """
-JSONPathWildcard is a special type of an item in JSON path which makes
-splitting paths possible. It has following values:
-- ANY - Matches any key or index.
-- ANY_KEY - Matches any key in an object.
-- ANY_INDEX - Matches any index in a list.
-- SKIP_LIST - If the next object is a list, skip it and match all of its 
-  elements, otherwise do nothing. This is useful when the structure of the
-  data in the JSON file can have one or many elements and when it has one it's
-  allowed to be a single object instead of a list with one item.
-
-The result of accessing JSON with a wildcard is always a tuple, even if the
-wildcard matches only one item. This also applies to the SKIP_LIST wildcard.
+Wildcards are used to match multiple keys or indices in a JSON path at once.
+There are four types of wildcards:
+- `ANY_KEY` - Matches any key in a `Dict`.
+- `ANY_INDEX` - Matches any index in a `Vector`.
+- `ANY` - Matches any key or in a `Dict` or index in a `Vector`.
+- `SKIP_LIST` - If current value in the path is a `Vector`, matches all indices.
+  If the current value is not a `Vector` it has no effect except for packing
+  current value into a result Tuple with one element.
 
 The wildcards can only be used for reading data, not for setting it.
 """
@@ -31,17 +28,18 @@ end
 
 """
 JSONPath is used to access and set the data in JSON serializable objects using
-indexing. The struct has following fields:
-- path: A Vector of keys and indices that defines the path to the value.
-- parents: Only used when setting values. If true, the path will be created
-  if it doesn't exist.
-- candestroy: Only used when setting values. If true, the path will be
-  overwritten if it exists (including the parent values that are in the way).
-- canfilllists: Only used when setting values. If true, the path will be
-  created if it doesn't exist and the lists will be filled with the
+indexing. Below is the list of propertie of the JSONPath object:
+
+## Properties that define the path
+- `path` - A Tuple of keys and indices that defines the path to the value.
+
+## Properties that spefify how to handle inserting data
+- `parents` - If true, the path will be created if it doesn't exist.
+- `candestroy` - If true, the path will be overwritten if it exists (including
+  the parent values that are in the way).
+- `canfilllists` - If true, the path will be created if it doesn't exist and the lists will be filled with the
   listfiller function.
-- listfiller: Only used when setting values. This function is used to fill
-  the lists when canfilllists is true.
+- `listfiller` - This function is used to fill the lists when canfilllists is true.
 """
 struct JSONPath
     path::Tuple{Vararg{Union{String,VectorIndex,JSONPathWildcard,StarPattern}}}
@@ -82,14 +80,17 @@ end
 
 """
 EndOfPath represents an error that occured during access to a JSON
-path.
+path. EndOfPath is not an exception. It's just an enum with a few values which
+may be useful for further processing.
 
 # Fields
-- MISSING_KEY - The requested key of an object is missing.
-- OUT_OF_BOUNDS - The requested index of a list is out of bounds.
-- NOT_A_CONTAINER - Requested access to an object which is not an object or a list.
-- INVALID_KEY_TYPE - Requested access to an object using index or to a list using a key.
-- INVALID_ROOT - The root object is not a Dict or a Vector.
+- `MISSING_KEY` - The requested key of an object is missing.
+- `OUT_OF_BOUNDS` - The requested index of a list is out of bounds.
+- `NOT_A_CONTAINER` - Requested access to an object which is not an object or a list.
+- `INVALID_KEY_TYPE` - Requested access to an object using index or to a list using a key.
+- `INVALID_ROOT` - The root object is not a Dict or a Vector. The errors that
+  occure in the root object are separated because the `setindex!` function isn't
+  able to modify the root object so the user might want to handle them in a different way.
 """
 @enum EndOfPath begin
     MISSING_KEY

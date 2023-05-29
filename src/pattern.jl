@@ -1,7 +1,7 @@
 # Custom starpattern string for pattern matching in JSONPath
 
 """
-StarPattern is a custom string created with the start_str macro. It is used
+StarPattern is a custom string created with the `start_str` macro. It is used
 for matching text with a pattern that uses "*" as a wildcard against Strings.
 
 Unlike regular String objects StarPattern strings can be indexed by the
@@ -22,11 +22,10 @@ macro star_str(s::String)
 end
 
 """
-Matches text with a pattern that uses "*" as a wildcard which
-can represent any number of characters.
+    starmatch(text::String, pattern::StarPattern)
 
-:param pattern: the pattern
-:param text: the text being matched with pattern
+Match the text with a pattern that uses "*" as a wildcard which
+can represent any number of characters.
 """
 function starmatch(text::String, pattern::StarPattern)::Bool
     # Change into tuples of unicode characters to allow indexing by the
