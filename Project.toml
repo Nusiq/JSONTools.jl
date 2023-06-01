@@ -1,7 +1,7 @@
 name = "JSONTools"
 uuid = "c89f0602-94c8-4e2b-b3c3-1de2a02037a7"
 authors = ["Nusiq <nusiq@outlook.com> and contributors"]
-version = "1.0.0-DEV"
+version = "1.0.0"
 
 [deps]
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
