@@ -9,7 +9,7 @@ The package is not yet registered, so you'll need to install it directly from Gi
 You can use the Julia package manager. From the Julia REPL, type `]` to enter the Pkg REPL mode and run
 
 ```
-pkg> add https://github.com/Nusiq/JSONTools.jl.git
+pkg> add JSONTools
 ```
 
 ## Basic use
